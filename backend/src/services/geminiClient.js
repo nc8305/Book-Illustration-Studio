@@ -8,9 +8,44 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' });
 const TEXT_MODEL = "gemini-3.5-flash";
-const IMAGE_MODEL = "gemini-3.1-flash-image";
+// IMAGE_MODEL is now replaced by Hugging Face FLUX.1-dev
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
+
+const HF_MODEL_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev";
+
+async function generateFluxImage(prompt) {
+  if (!process.env.HF_TOKEN) {
+    throw new Error("CRITICAL ERROR: HF_TOKEN is not set. Cannot generate images via Hugging Face.");
+  }
+
+  const response = await fetch(HF_MODEL_URL, {
+    headers: {
+      Authorization: `Bearer ${process.env.HF_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+    body: JSON.stringify({ inputs: prompt }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let parsedError;
+    try {
+      parsedError = JSON.parse(errorText);
+    } catch(e) {
+      parsedError = { error: errorText };
+    }
+    console.error(`[HF Error detail]:`, JSON.stringify(parsedError, null, 2));
+    throw new Error(`Hugging Face image generation failed: ${response.status} - ${parsedError.error || errorText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  // Content-Type from HF is usually image/jpeg or image/png
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
 
 // Hàm tạo độ trễ để tránh lỗi 429 (Quota exceeded)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -131,29 +166,15 @@ async function generatePortraits(project) {
 
     const input = `Create an illustration for ${char.name} following this description: ${char.prompt}. The style we want you to follow is: Follow this style: "${project.steps.style.result.style}". Also follow those rules: ${stylePrompt}`;
     
-    let response;
+    let b64 = "";
     try {
-      response = await ai.models.generateContent({
-          model: IMAGE_MODEL,
-          contents: input,
-          config: {
-            outputMimeType: "image/jpeg"
-          }
-      });
+      b64 = await generateFluxImage(input);
     } catch (err) {
-      if (err.status === 429 || String(err).includes('429') || String(err).includes('RESOURCE_EXHAUSTED')) {
-        throw new Error(`Gemini image quota exceeded while generating portrait for ${char.name}. Wait a moment and retry this step.`);
-      }
-      throw err;
+      console.error(`[HF detail] portrait ${char.name}:`, err);
+      throw new Error(`HF image generation failed while generating portrait for ${char.name}. Wait a moment and retry this step. Original error: ${err.message}`);
     }
 
-    let b64 = "";
-    if (response.candidates && response.candidates[0].content.parts[0].inlineData) {
-       b64 = response.candidates[0].content.parts[0].inlineData.data;
-    } else {
-       throw new Error(`Gemini returned no image data for portrait ${char.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
-    }
-    char.portraitBase64 = `data:image/jpeg;base64,${b64}`;
+    char.portraitBase64 = b64;
 
     // Tạm dừng 10 giây trước khi xử lý nhân vật tiếp theo (trừ nhân vật cuối cùng)
     if (i < updatedCharacters.length - 1) {
@@ -212,43 +233,27 @@ async function generateIllustrations(project) {
     const chapter = updatedChapters[i];
     if (chapter.illustrationBase64) continue;
 
-    const parts = [
-      { text: `Create this illustration for ${chapter.name}: ${chapter.prompt}\nUse the provided images as references of what the characters look like.\nThe style we want you to follow is: "${project.steps.style.result.style}". Also follow those rules: ${stylePrompt}` }
-    ];
+    let prompt = `Create this illustration for ${chapter.name}: ${chapter.prompt}\nThe style we want you to follow is: "${project.steps.style.result.style}". Also follow those rules: ${stylePrompt}\n`;
 
     if (chapter.characters && chapter.characters.length > 0) {
+      prompt += `\nCharacters appearing in this scene:\n`;
       for (const charName of chapter.characters) {
         const charData = project.steps.portraits.result.characters.find(c => c.name === charName);
-        if (charData && charData.portraitBase64 && charData.portraitBase64.startsWith('data:image/jpeg')) {
-          const b64Data = charData.portraitBase64.split(',')[1];
-          const mime = charData.portraitBase64.split(';')[0].split(':')[1];
-          parts.push({
-            inlineData: { data: b64Data, mimeType: mime }
-          });
+        if (charData) {
+          prompt += `- ${charName}: ${charData.prompt}\n`;
         }
       }
     }
 
-    let response;
+    let b64 = "";
     try {
-      response = await ai.models.generateContent({
-          model: IMAGE_MODEL,
-          contents: { parts }
-      });
+      b64 = await generateFluxImage(prompt);
     } catch (err) {
-      if (err.status === 429 || String(err).includes('429') || String(err).includes('RESOURCE_EXHAUSTED')) {
-        throw new Error(`Gemini image quota exceeded while generating illustration for ${chapter.name}. Wait a moment and retry this step.`);
-      }
-      throw err;
+      console.error(`[HF detail] illustration ${chapter.name}:`, err);
+      throw new Error(`HF image generation failed while generating illustration for ${chapter.name}. Wait a moment and retry this step. Original error: ${err.message}`);
     }
 
-    let b64 = "";
-    if (response.candidates && response.candidates[0].content.parts[0].inlineData) {
-       b64 = response.candidates[0].content.parts[0].inlineData.data;
-    } else {
-       throw new Error(`Gemini returned no image data for illustration ${chapter.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
-    }
-    chapter.illustrationBase64 = `data:image/jpeg;base64,${b64}`;
+    chapter.illustrationBase64 = b64;
 
     // Tạm dừng 10 giây trước khi xử lý chương tiếp theo (trừ chương cuối cùng)
     if (i < updatedChapters.length - 1) {

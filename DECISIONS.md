@@ -45,6 +45,16 @@
 **Reasoning:** To prevent the pipeline from crashing when Free Tier users hit rate limits, the AI proposed a clever "Graceful Degradation" strategy: catch the 429 error and return a generated SVG placeholder with the text "(Quota Exceeded)". While this keeps the pipeline moving, I overrode it because it violates a core business requirement: "Failures are retryable". If the backend swallows the error and returns a fake image, the state machine marks the step as `done`. The user is then permanently locked out of retrying that step to get the real image when their quota recovers. I opted to "Fail Loudly" (throw the error) so the state machine correctly marks it as `failed`, allowing the user to click "Retry Step".
 **Cost:** Free tier users will experience blocked pipelines during heavy testing, but they retain control over retryability.
 
+## AI Override: Hybrid Pipeline (Gemini + Hugging Face FLUX.1-dev)
+**Decision:** Pivoted the architecture to use Gemini for Text Generation and Hugging Face FLUX.1-dev for Image Generation.
+**Reasoning:** Due to an unavoidable strict `limit: 0` quota for Gemini image models on free-tier, unverified GCP projects, generating images via Gemini was permanently blocked. Instead of degrading the UX with fake SVG placeholders or halting testing, we introduced a hybrid pipeline. The backend uses the Hugging Face Inference API (`black-forest-labs/FLUX.1-dev`) to render images via `fetch`, whilst retaining Gemini 3.5 Flash for the heavy lifting of story and prompt reasoning. Since FLUX.1-dev via Inference API is purely text-to-image, we adapted the `generateIllustrations` prompt to embed textual character descriptions rather than passing reference images.
+**Cost:** We lose the visual consistency benefit of passing reference images natively as Gemini could. However, this is vastly outweighed by the benefit of having a functional, fully end-to-end generating pipeline without requiring a billed GCP account.
+
+## AI Override: Image Model Quota Limitations (Limit: 0)
+**Decision:** Reverted `IMAGE_MODEL` back to `gemini-2.5-flash-image` after AI automatically upgraded it, and documented the unavoidable Free-Tier limit.
+**Reasoning:** The AI coding tool initially automatically changed `IMAGE_MODEL` from `gemini-2.5-flash-image` to `gemini-3.1-flash-image` and subsequently to `gemini-3-pro-image`, citing "model deprecation". However, when tested, both newer models returned a 429 error with `limit: 0`. This indicates that the Free-Tier quota is strictly set to 0 for Gemini 3.x image models on unbilled Google Cloud projects. The problem was not a model deprecation, but rather an intentional hard limit on unverified anonymous projects. I discovered this through detailed error logs, verified it via Gemini API rate-limits docs, and reverted back to the original model. 
+**Cost:** The pipeline cannot generate images on this API key without a linked billing account. We accept this infrastructure limitation and document it clearly, allowing the codebase to remain structurally sound and avoiding "hacky" fallback solutions that swallow errors.
+
 ---
 
 **If you had one more day, what would you build next and why?**

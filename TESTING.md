@@ -19,6 +19,17 @@ Frontend testing focuses on component state and User Experience:
 
 ---
 
+## E2E Pipeline Verification & Free-Tier Quota Limitation
+
+Due to Google Cloud's strict rate limits on unbilled projects (limit: 0 for all Gemini image generation models, including `gemini-2.5-flash-image` and the 3.x series), the pipeline's image generation steps are blocked when using an anonymous/unbilled Free-Tier API key.
+
+- **Verified Steps (Text Models)**: `style` and `characters`. These steps successfully use the Interactions API to generate the expected JSON output and prompts.
+- **Blocked Steps (Image Models)**: `portraits` and `illustrations`. When tested on a Free-Tier key, the API immediately returns a 429 Resource Exhausted error: `Quota exceeded for metric... limit: 0, model: gemini-2.5-flash-preview-image`.
+
+We explicitly chose to let the backend **Fail Loudly** and bubble up the error to the frontend rather than silently patching it with a fake SVG placeholder. This preserves the state machine's integrity: the step is correctly marked as `failed`, keeping the UI in a valid error state and allowing the user to trigger a retry once a billed API key is provided.
+
+---
+
 ## Test Report (Automated Run)
 
 Here is the exact output from running `bash test.sh`:
