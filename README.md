@@ -64,6 +64,7 @@ graph TD
 - **Atomic Operations & Concurrency Control**: By wrapping file I/O operations (`fs.promises`) inside an `async-mutex` lock, and performing the Read-Check-Write state logic entirely within the mutex closure, we achieved zero-race-condition safety when handling concurrent API requests.
 - **AI Context Chaining**: The `geminiClient.js` leverages the latest `@google/genai` Interactions API (`previousInteractionId`) to maintain conversational context between pipeline steps without needing to re-send large payloads.
 - **Decoupled Polling Architecture**: Instead of error-prone SSE/WebSockets for a simple flow, the frontend uses a robust decoupled polling mechanism (`setInterval`) to update its state.
+- **Generative SVG Pipeline**: Due to restrictive quota limitations on Free-Tier image diffusion models (`limit: 0`), the architecture ingeniously pivots to use the standard text model (`gemini-3.5-flash`) as an SVG Designer. The text model generates pure, valid Vector SVG markup representing the scene/character, which the frontend renders seamlessly. This guarantees 100% end-to-end functionality on a free tier without relying on third-party image generation APIs.
 
 > **Note**: For details on AI tool overrides, code review resolutions, and technical compromises, please refer to [DECISIONS.md](./DECISIONS.md) and [TESTING.md](./TESTING.md).
 
