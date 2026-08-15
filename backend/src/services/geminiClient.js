@@ -1,4 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
+const { InferenceClient } = require('@huggingface/inference');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -8,42 +9,42 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' });
 const TEXT_MODEL = "gemini-3.5-flash";
-// IMAGE_MODEL is now replaced by Hugging Face FLUX.1-dev
+// IMAGE_MODEL is now replaced by Hugging Face FLUX.1-dev via Inference Providers
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
 
-const HF_MODEL_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev";
+// The model itself, not a fixed provider URL. Hugging Face's Inference Providers
+// router picks a provider that currently serves this model — providers offering
+// a given model change over time (e.g. FLUX.1-dev was dropped from "hf-inference"
+// but is still served by "fal-ai", "replicate", etc.), so we let the SDK route it
+// instead of hardcoding a provider-specific endpoint.
+const HF_IMAGE_MODEL = "black-forest-labs/FLUX.1-dev";
+// Set HF_PROVIDER in .env to pin a specific provider (e.g. "fal-ai", "replicate").
+// Defaults to "auto", which picks the fastest available provider for the model.
+const HF_PROVIDER = process.env.HF_PROVIDER || "auto";
 
 async function generateFluxImage(prompt) {
   if (!process.env.HF_TOKEN) {
     throw new Error("CRITICAL ERROR: HF_TOKEN is not set. Cannot generate images via Hugging Face.");
   }
 
-  const response = await fetch(HF_MODEL_URL, {
-    headers: {
-      Authorization: `Bearer ${process.env.HF_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-    body: JSON.stringify({ inputs: prompt }),
-  });
+  const client = new InferenceClient(process.env.HF_TOKEN);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let parsedError;
-    try {
-      parsedError = JSON.parse(errorText);
-    } catch(e) {
-      parsedError = { error: errorText };
-    }
-    console.error(`[HF Error detail]:`, JSON.stringify(parsedError, null, 2));
-    throw new Error(`Hugging Face image generation failed: ${response.status} - ${parsedError.error || errorText}`);
+  let imageBlob;
+  try {
+    imageBlob = await client.textToImage({
+      model: HF_IMAGE_MODEL,
+      inputs: prompt,
+      provider: HF_PROVIDER,
+    });
+  } catch (err) {
+    console.error(`[HF Error detail]:`, err);
+    throw new Error(`Hugging Face image generation failed: ${err.message}`);
   }
 
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  // Content-Type from HF is usually image/jpeg or image/png
-  const contentType = response.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await imageBlob.arrayBuffer());
+  // The SDK returns a Blob; its `type` reflects the provider's content-type.
+  const contentType = imageBlob.type || "image/jpeg";
   return `data:${contentType};base64,${buffer.toString('base64')}`;
 }
 
@@ -71,10 +72,10 @@ async function uploadBookIfNeeded(project) {
   if (project.geminiFileUri) {
     return project.geminiFileUri;
   }
-  
+
   const tmpPath = path.join(process.cwd(), 'data', `${project.id}.txt`);
   await fs.writeFile(tmpPath, project.bookText);
-  
+
   try {
     const fileResponse = await ai.files.upload({ file: tmpPath });
     return fileResponse.uri;
@@ -92,11 +93,11 @@ async function startInteraction(project, input) {
       { type: "document", uri: fileUri }
     ]
   };
-  
+
   if (project.lastInteractionId) {
     interactionPayload.previous_interaction_id = project.lastInteractionId;
   }
-  
+
   const interaction = await ai.interactions.create(interactionPayload);
   return { interaction, fileUri };
 }
@@ -104,7 +105,7 @@ async function startInteraction(project, input) {
 async function generateStyle(project, payload) {
   let styleStr = payload?.style || "";
   let interactionRes;
-  
+
   if (!styleStr) {
     interactionRes = await startInteraction(project, "Can you define an art style that would fit the story but with a twist? Just give us the prompt for the art style that will be added to future prompts.");
     styleStr = interactionRes.interaction.output_text.trim();
@@ -145,7 +146,7 @@ async function generateCharacters(project) {
 
   const interaction = await ai.interactions.create(interactionPayload);
   let characters = JSON.parse(interaction.output_text);
-  
+
   if (characters.length > 2) {
     characters = characters.slice(0, 2);
   }
@@ -159,13 +160,13 @@ async function generateCharacters(project) {
 async function generatePortraits(project) {
   // Access characters from previous step's result
   const updatedCharacters = [...project.steps.characters.result.characters];
-  
+
   for (let i = 0; i < updatedCharacters.length; i++) {
     const char = updatedCharacters[i];
-    if (char.portraitBase64) continue; 
+    if (char.portraitBase64) continue;
 
     const input = `Create an illustration for ${char.name} following this description: ${char.prompt}. The style we want you to follow is: Follow this style: "${project.steps.style.result.style}". Also follow those rules: ${stylePrompt}`;
-    
+
     let b64 = "";
     try {
       b64 = await generateFluxImage(input);
@@ -215,7 +216,7 @@ async function generateChapters(project) {
 
   const interaction = await ai.interactions.create(interactionPayload);
   let chapters = JSON.parse(interaction.output_text);
-  
+
   if (chapters.length > 1) {
     chapters = chapters.slice(0, 1);
   }
@@ -228,7 +229,7 @@ async function generateChapters(project) {
 
 async function generateIllustrations(project) {
   const updatedChapters = [...project.steps.chapters.result.chapters];
-  
+
   for (let i = 0; i < updatedChapters.length; i++) {
     const chapter = updatedChapters[i];
     if (chapter.illustrationBase64) continue;
@@ -268,5 +269,9 @@ async function generateIllustrations(project) {
 }
 
 module.exports = {
-  callStep
+  callStep,
+  // exported for unit testing
+  generateFluxImage,
+  HF_IMAGE_MODEL,
+  HF_PROVIDER
 };
