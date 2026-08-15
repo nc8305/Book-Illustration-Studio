@@ -2,9 +2,13 @@ const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs/promises');
 const path = require('path');
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const TEXT_MODEL = "gemini-2.5-flash";
-const IMAGE_MODEL = "gemini-2.5-flash-image";
+if (!process.env.GEMINI_API_KEY) {
+  console.error("CRITICAL ERROR: GEMINI_API_KEY is not set in the environment.");
+}
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' });
+const TEXT_MODEL = "gemini-3.5-flash";
+const IMAGE_MODEL = "gemini-3-pro-image";
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
 
@@ -138,7 +142,6 @@ async function generatePortraits(project) {
     } else {
        throw new Error("Failed to get image data");
     }
-
     char.portraitBase64 = `data:image/jpeg;base64,${b64}`;
   }
 
@@ -199,7 +202,7 @@ async function generateIllustrations(project) {
     if (chapter.characters && chapter.characters.length > 0) {
       for (const charName of chapter.characters) {
         const charData = project.steps.portraits.result.characters.find(c => c.name === charName);
-        if (charData && charData.portraitBase64) {
+        if (charData && charData.portraitBase64 && charData.portraitBase64.startsWith('data:image/jpeg')) {
           const b64Data = charData.portraitBase64.split(',')[1];
           const mime = charData.portraitBase64.split(';')[0].split(':')[1];
           parts.push({
@@ -220,7 +223,6 @@ async function generateIllustrations(project) {
     } else {
        throw new Error("Failed to get image data");
     }
-
     chapter.illustrationBase64 = `data:image/jpeg;base64,${b64}`;
   }
 
