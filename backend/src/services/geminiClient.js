@@ -12,6 +12,9 @@ const IMAGE_MODEL = "gemini-3.1-flash-image";
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
 
+// Hàm tạo độ trễ để tránh lỗi 429 (Quota exceeded)
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function callStep(projectId, stepName, project, payload) {
   switch (stepName) {
     case 'style':
@@ -151,6 +154,12 @@ async function generatePortraits(project) {
        throw new Error(`Gemini returned no image data for portrait ${char.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
     }
     char.portraitBase64 = `data:image/jpeg;base64,${b64}`;
+
+    // Tạm dừng 10 giây trước khi xử lý nhân vật tiếp theo (trừ nhân vật cuối cùng)
+    if (i < updatedCharacters.length - 1) {
+      console.log(`Đã tạo xong ảnh cho ${char.name}. Chờ 10 giây trước khi tiếp tục...`);
+      await sleep(10000);
+    }
   }
 
   return {
@@ -240,6 +249,12 @@ async function generateIllustrations(project) {
        throw new Error(`Gemini returned no image data for illustration ${chapter.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
     }
     chapter.illustrationBase64 = `data:image/jpeg;base64,${b64}`;
+
+    // Tạm dừng 10 giây trước khi xử lý chương tiếp theo (trừ chương cuối cùng)
+    if (i < updatedChapters.length - 1) {
+      console.log(`Đã tạo xong minh họa cho ${chapter.name}. Chờ 10 giây trước khi tiếp tục...`);
+      await sleep(10000);
+    }
   }
 
   return {
