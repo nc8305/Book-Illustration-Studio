@@ -334,7 +334,7 @@ function ProjectDetail({ projectId, onBack, fetcher }) {
          <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
             <h3>Characters</h3>
             <div className="character-grid">
-               {project.steps.characters.result.characters.map((c, i) => (
+               {(project.steps.portraits.status === 'done' && project.steps.portraits.result ? project.steps.portraits.result.characters : project.steps.characters.result.characters).map((c, i) => (
                   <div key={i} className="glass-panel result-card">
                      {c.portraitBase64 ? (
                         <div className="result-img-wrapper">
@@ -359,7 +359,7 @@ function ProjectDetail({ projectId, onBack, fetcher }) {
          <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
             <h3>Chapters</h3>
             <div className="chapter-grid">
-               {project.steps.chapters.result.chapters.map((c, i) => (
+               {(project.steps.illustrations.status === 'done' && project.steps.illustrations.result ? project.steps.illustrations.result.chapters : project.steps.chapters.result.chapters).map((c, i) => (
                   <div key={i} className="glass-panel result-card">
                      {c.illustrationBase64 ? (
                         <div className="result-img-wrapper">
