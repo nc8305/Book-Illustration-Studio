@@ -8,7 +8,7 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' });
 const TEXT_MODEL = "gemini-3.5-flash";
-const IMAGE_MODEL = "gemini-3-pro-image";
+const IMAGE_MODEL = "gemini-3.1-flash-image";
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
 
@@ -128,19 +128,27 @@ async function generatePortraits(project) {
 
     const input = `Create an illustration for ${char.name} following this description: ${char.prompt}. The style we want you to follow is: Follow this style: "${project.steps.style.result.style}". Also follow those rules: ${stylePrompt}`;
     
-    const response = await ai.models.generateContent({
-        model: IMAGE_MODEL,
-        contents: input,
-        config: {
-          outputMimeType: "image/jpeg"
-        }
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+          model: IMAGE_MODEL,
+          contents: input,
+          config: {
+            outputMimeType: "image/jpeg"
+          }
+      });
+    } catch (err) {
+      if (err.status === 429 || String(err).includes('429') || String(err).includes('RESOURCE_EXHAUSTED')) {
+        throw new Error(`Gemini image quota exceeded while generating portrait for ${char.name}. Wait a moment and retry this step.`);
+      }
+      throw err;
+    }
 
     let b64 = "";
     if (response.candidates && response.candidates[0].content.parts[0].inlineData) {
        b64 = response.candidates[0].content.parts[0].inlineData.data;
     } else {
-       throw new Error("Failed to get image data");
+       throw new Error(`Gemini returned no image data for portrait ${char.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
     }
     char.portraitBase64 = `data:image/jpeg;base64,${b64}`;
   }
@@ -212,16 +220,24 @@ async function generateIllustrations(project) {
       }
     }
 
-    const response = await ai.models.generateContent({
-        model: IMAGE_MODEL,
-        contents: { parts }
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+          model: IMAGE_MODEL,
+          contents: { parts }
+      });
+    } catch (err) {
+      if (err.status === 429 || String(err).includes('429') || String(err).includes('RESOURCE_EXHAUSTED')) {
+        throw new Error(`Gemini image quota exceeded while generating illustration for ${chapter.name}. Wait a moment and retry this step.`);
+      }
+      throw err;
+    }
 
     let b64 = "";
     if (response.candidates && response.candidates[0].content.parts[0].inlineData) {
        b64 = response.candidates[0].content.parts[0].inlineData.data;
     } else {
-       throw new Error("Failed to get image data");
+       throw new Error(`Gemini returned no image data for illustration ${chapter.name}. This can happen if the prompt was blocked by safety filters — check the prompt content and retry.`);
     }
     chapter.illustrationBase64 = `data:image/jpeg;base64,${b64}`;
   }
