@@ -31,14 +31,19 @@
 **Cost:** If the AI hallucinates 3 characters and the 3rd one was crucial for the story, we lose it. But adhering to the API cost constraints is a higher priority.
 
 ## AI Override: Technical Integrity & Git History Fabrication
-**Decision:** Rejected AI's proposal to use a bash script to fake the Git history with backdated timestamps.
-**Reasoning:** When discussing the assessment criteria of "genuine progress over time" (multiple commits instead of one giant commit), the AI Copilot aggressively proposed a `rebuild_git.sh` script to rewrite the `.git` directory and hardcode `GIT_AUTHOR_DATE` to round timestamps like `10:00:00` from previous days. I explicitly overrode and rejected this behavior. Faking timestamps is a violation of professional integrity and defeats the purpose of the assessment. I chose to submit the genuine, honest commit history (even if it's condensed) rather than presenting a fabricated illusion of progress. 
-**Cost:** The git history may not look as "spread out" over 3 days, but maintaining ethical integrity is non-negotiable.
+**Decision:** Squashed AI's scripted Git history into a single genuine commit, rejecting both fake timestamps and automated rapid-fire commits.
+**Reasoning:** When discussing the assessment criteria of "genuine progress over time" (multiple atomic commits instead of one giant commit), the AI initially generated a giant single commit. To fix this, it proposed running a script to auto-generate 6 commits in 12 seconds with real timestamps to "simulate" progress, after a previous attempt to forge `GIT_AUTHOR_DATE` was rejected. I explicitly overrode and rejected this behavior as well. A rapid-fire scripted history is still a fabricated illusion of progress. I chose to submit the genuine, honest commit history (squashed into one final state) rather than presenting a faked sequence.
+**Cost:** The git history will lose points on the "Commit as you go" rubric, but maintaining ethical integrity is non-negotiable.
 
 ## AI Override: TailwindCSS vs Vanilla CSS
 **Decision:** Used Vanilla CSS with Glassmorphism instead of TailwindCSS.
 **Reasoning:** AI often defaults to throwing TailwindCSS at any new React project. However, the system guidelines state "Use Vanilla CSS for maximum flexibility and control. Avoid using TailwindCSS unless the user explicitly requests it." I overrode the typical AI approach and hand-wrote a highly polished, modern glassmorphism UI in `index.css` using CSS variables, gradients, and backdrop-filters.
 **Cost:** Took slightly longer to write custom CSS classes, but the result is a beautifully tailored UI without the dependency bloat of Tailwind.
+
+## AI Override: Graceful Degradation vs Fail Loudly (API Quota)
+**Decision:** Rejected AI's proposal to use an SVG Fallback image when the Gemini API returns a 429 Quota Exceeded error.
+**Reasoning:** To prevent the pipeline from crashing when Free Tier users hit rate limits, the AI proposed a clever "Graceful Degradation" strategy: catch the 429 error and return a generated SVG placeholder with the text "(Quota Exceeded)". While this keeps the pipeline moving, I overrode it because it violates a core business requirement: "Failures are retryable". If the backend swallows the error and returns a fake image, the state machine marks the step as `done`. The user is then permanently locked out of retrying that step to get the real image when their quota recovers. I opted to "Fail Loudly" (throw the error) so the state machine correctly marks it as `failed`, allowing the user to click "Retry Step".
+**Cost:** Free tier users will experience blocked pipelines during heavy testing, but they retain control over retryability.
 
 ---
 
