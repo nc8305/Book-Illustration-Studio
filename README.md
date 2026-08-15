@@ -28,6 +28,42 @@ bash test.sh
 ```
 
 ## Architecture Overview
-- **Backend**: Node.js + Express. Serves as the State Machine controller and the sole wrapper for the Gemini API. Uses a local JSON file store with an in-memory `async-mutex` lock to prevent race conditions during concurrent reads/writes.
-- **Frontend**: React (Vite). A Single Page Application using vanilla CSS and glassmorphism UI. Polls the backend for state updates.
-- **AI Tooling**: Built with AI pairing. See `DECISIONS.md` for engineering trade-offs and AI overrides, and `docs/plan.md` for the initial implementation plan.
+
+This project is designed following Enterprise SDLC standards, prioritizing race-condition prevention, UI/UX aesthetics, and traceability.
+
+### High-Level System Design
+
+```mermaid
+graph TD
+    subgraph Frontend [React + Vite SPA]
+        UI[Glassmorphism UI]
+        APIClient[Polling API Client]
+        UI <--> APIClient
+    end
+
+    subgraph Backend [Node.js + Express]
+        Router[API Routes]
+        Pipeline[State Machine Pipeline]
+        Gemini[Gemini API Client]
+        Storage[JSON File Storage]
+        Mutex[async-mutex Lock]
+        
+        Router --> Pipeline
+        Pipeline --> Gemini
+        Pipeline --> Mutex
+        Mutex --> Storage
+    end
+
+    APIClient -->|HTTP GET /projects/:id| Router
+    APIClient -->|HTTP POST /projects/:id/steps/:step/run| Router
+    Gemini <-->|Interactions API| External[Google Gemini GenAI]
+```
+
+### Key Technical Decisions
+- **Backend-Driven State Machine**: The frontend contains zero business logic regarding step ordering. The backend pipeline explicitly blocks duplicate calls (Idempotency), enforces step order, and handles timeout/retry logic for stuck steps.
+- **Atomic Operations & Concurrency Control**: By wrapping file I/O operations (`fs.promises`) inside an `async-mutex` lock, and performing the Read-Check-Write state logic entirely within the mutex closure, we achieved zero-race-condition safety when handling concurrent API requests.
+- **AI Context Chaining**: The `geminiClient.js` leverages the latest `@google/genai` Interactions API (`previousInteractionId`) to maintain conversational context between pipeline steps without needing to re-send large payloads.
+- **Decoupled Polling Architecture**: Instead of error-prone SSE/WebSockets for a simple flow, the frontend uses a robust decoupled polling mechanism (`setInterval`) to update its state.
+
+> **Note**: For details on AI tool overrides, code review resolutions, and technical compromises, please refer to [DECISIONS.md](./DECISIONS.md) and [TESTING.md](./TESTING.md).
+
