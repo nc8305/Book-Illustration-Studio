@@ -1,5 +1,4 @@
 const { GoogleGenAI } = require('@google/genai');
-const { InferenceClient } = require('@huggingface/inference');
 const fs = require('fs/promises');
 const path = require('path');
 
@@ -9,43 +8,40 @@ if (!process.env.GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' });
 const TEXT_MODEL = "gemini-3.5-flash";
-// IMAGE_MODEL is now replaced by Hugging Face FLUX.1-dev via Inference Providers
 
 const stylePrompt = "There must be no text on the image, it should not look like a cover page. It should be an full illustration with no borders, titles, nor description. Unless asked otherwise, stay family-friendly with uplifting colors. Each produced should be a simple image, no panels.";
 
-// The model itself, not a fixed provider URL. Hugging Face's Inference Providers
-// router picks a provider that currently serves this model — providers offering
-// a given model change over time (e.g. FLUX.1-dev was dropped from "hf-inference"
-// but is still served by "fal-ai", "replicate", etc.), so we let the SDK route it
-// instead of hardcoding a provider-specific endpoint.
-const HF_IMAGE_MODEL = "black-forest-labs/FLUX.1-dev";
-// Set HF_PROVIDER in .env to pin a specific provider (e.g. "fal-ai", "replicate").
-// Defaults to "auto", which picks the fastest available provider for the model.
-const HF_PROVIDER = process.env.HF_PROVIDER || "auto";
+async function generateSvgImage(prompt) {
+  const svgPrompt = `You are an expert SVG designer. Create a beautiful, detailed vector illustration using SVG code that visually represents the following description: "${prompt}".
+Rules:
+1. ONLY return valid SVG XML code. Do NOT wrap it in markdown block quotes (like \`\`\`xml). If you do, I will have to strip it.
+2. The SVG should have a viewBox="0 0 800 600" and width="100%" height="100%" and include <svg xmlns="http://www.w3.org/2000/svg"> and </svg> tags.
+3. Use gradients, shapes, and good colors to make it look like a book illustration.
+4. Do NOT include any HTML or explanatory text. Just the SVG code.`;
 
-async function generateFluxImage(prompt) {
-  if (!process.env.HF_TOKEN) {
-    throw new Error("CRITICAL ERROR: HF_TOKEN is not set. Cannot generate images via Hugging Face.");
-  }
-
-  const client = new InferenceClient(process.env.HF_TOKEN);
-
-  let imageBlob;
   try {
-    imageBlob = await client.textToImage({
-      model: HF_IMAGE_MODEL,
-      inputs: prompt,
-      provider: HF_PROVIDER,
+    const response = await ai.models.generateContent({
+        model: TEXT_MODEL,
+        contents: svgPrompt
     });
+    
+    let svgCode = response.text || "";
+    // Clean up markdown wrapping if present
+    if (svgCode.includes("```")) {
+      const match = svgCode.match(/```(?:xml|svg)?\n([\s\S]*?)```/);
+      if (match && match[1]) {
+        svgCode = match[1].trim();
+      } else {
+        svgCode = svgCode.replace(/```(xml|svg)?/g, "").trim();
+      }
+    }
+    
+    const buffer = Buffer.from(svgCode, "utf-8");
+    return `data:image/svg+xml;base64,${buffer.toString("base64")}`;
   } catch (err) {
-    console.error(`[HF Error detail]:`, err);
-    throw new Error(`Hugging Face image generation failed: ${err.message}`);
+    console.error(`[SVG Generation Error detail]:`, err);
+    throw new Error(`SVG generation failed: ${err.message}`);
   }
-
-  const buffer = Buffer.from(await imageBlob.arrayBuffer());
-  // The SDK returns a Blob; its `type` reflects the provider's content-type.
-  const contentType = imageBlob.type || "image/jpeg";
-  return `data:${contentType};base64,${buffer.toString('base64')}`;
 }
 
 // Hàm tạo độ trễ để tránh lỗi 429 (Quota exceeded)
@@ -169,18 +165,18 @@ async function generatePortraits(project) {
 
     let b64 = "";
     try {
-      b64 = await generateFluxImage(input);
+      b64 = await generateSvgImage(input);
     } catch (err) {
-      console.error(`[HF detail] portrait ${char.name}:`, err);
-      throw new Error(`HF image generation failed while generating portrait for ${char.name}. Wait a moment and retry this step. Original error: ${err.message}`);
+      console.error(`[SVG detail] portrait ${char.name}:`, err);
+      throw new Error(`SVG generation failed while generating portrait for ${char.name}. Wait a moment and retry this step. Original error: ${err.message}`);
     }
 
     char.portraitBase64 = b64;
 
-    // Tạm dừng 10 giây trước khi xử lý nhân vật tiếp theo (trừ nhân vật cuối cùng)
+    // Tạm dừng 3 giây (Text model chạy nhanh hơn image model)
     if (i < updatedCharacters.length - 1) {
-      console.log(`Đã tạo xong ảnh cho ${char.name}. Chờ 10 giây trước khi tiếp tục...`);
-      await sleep(10000);
+      console.log(`Đã tạo xong ảnh cho ${char.name}. Chờ 3 giây trước khi tiếp tục...`);
+      await sleep(3000);
     }
   }
 
@@ -248,18 +244,18 @@ async function generateIllustrations(project) {
 
     let b64 = "";
     try {
-      b64 = await generateFluxImage(prompt);
+      b64 = await generateSvgImage(prompt);
     } catch (err) {
-      console.error(`[HF detail] illustration ${chapter.name}:`, err);
-      throw new Error(`HF image generation failed while generating illustration for ${chapter.name}. Wait a moment and retry this step. Original error: ${err.message}`);
+      console.error(`[SVG detail] illustration ${chapter.name}:`, err);
+      throw new Error(`SVG generation failed while generating illustration for ${chapter.name}. Wait a moment and retry this step. Original error: ${err.message}`);
     }
 
     chapter.illustrationBase64 = b64;
 
-    // Tạm dừng 10 giây trước khi xử lý chương tiếp theo (trừ chương cuối cùng)
+    // Tạm dừng 3 giây 
     if (i < updatedChapters.length - 1) {
-      console.log(`Đã tạo xong minh họa cho ${chapter.name}. Chờ 10 giây trước khi tiếp tục...`);
-      await sleep(10000);
+      console.log(`Đã tạo xong minh họa cho ${chapter.name}. Chờ 3 giây trước khi tiếp tục...`);
+      await sleep(3000);
     }
   }
 
@@ -270,8 +266,5 @@ async function generateIllustrations(project) {
 
 module.exports = {
   callStep,
-  // exported for unit testing
-  generateFluxImage,
-  HF_IMAGE_MODEL,
-  HF_PROVIDER
+  generateSvgImage
 };
